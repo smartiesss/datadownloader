@@ -28,6 +28,20 @@ CREATE TABLE IF NOT EXISTS eth_option_quotes (
     best_ask_amount NUMERIC(18, 8),
     underlying_price NUMERIC(18, 8),
     mark_price NUMERIC(18, 8),
+    -- Greeks columns
+    delta NUMERIC(8, 6),
+    gamma NUMERIC(8, 6),
+    theta NUMERIC(8, 6),
+    vega NUMERIC(8, 6),
+    rho NUMERIC(8, 6),
+    -- IV columns
+    implied_volatility NUMERIC(8, 4),
+    bid_iv NUMERIC(8, 4),
+    ask_iv NUMERIC(8, 4),
+    mark_iv NUMERIC(8, 4),
+    -- Additional market data
+    open_interest NUMERIC(18, 8),
+    last_price NUMERIC(18, 8),
     PRIMARY KEY (timestamp, instrument)
 );
 
