@@ -1,0 +1,31 @@
+# Example: Adding your own service to docker-compose.yml
+# This shows how to add a custom analysis service that accesses the database
+
+version: '3.8'
+
+services:
+  # Your custom analysis service
+  my_analysis_app:
+    image: python:3.12-slim
+    container_name: my-analysis
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      # Database connection (same network as collector)
+      POSTGRES_HOST: timescaledb
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: crypto_data
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./my_analysis:/app
+    working_dir: /app
+    command: python my_script.py
+    networks:
+      - crypto_net  # Same network as collector
+
+# Add this to your existing docker-compose.yml networks section
+networks:
+  crypto_net:
+    external: true  # Use existing network from main docker-compose.yml

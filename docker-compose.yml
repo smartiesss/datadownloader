@@ -1,0 +1,105 @@
+# Docker Compose for ETH Options Tick Data Collector
+# Deploy to NAS (QNAP/TerraMaster) with Docker support
+#
+# Quick Start:
+#   1. Copy .env.example to .env and edit passwords
+#   2. Run: docker-compose up -d
+#   3. Check: docker-compose logs -f collector
+#   4. Access Grafana: http://nas-ip:3000 (admin/admin)
+
+version: '3.8'
+
+services:
+  # TimescaleDB - Time-series database for tick data
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: eth-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_data}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "work_mem=50MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "max_connections=50"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - crypto_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Collector - WebSocket tick data collector
+  collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: eth-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: timescaledb
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_data}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config:ro
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+
+  # Grafana - Data visualization dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: eth-grafana
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - crypto_net
+
+volumes:
+  timescaledb_data:
+  grafana_data:
+
+networks:
+  crypto_net:
+    driver: bridge

@@ -1,0 +1,132 @@
+# Multi-Currency Configuration for Tick Data Collector
+# Add new currencies by simply adding entries to this file
+#
+# Usage:
+#   python -m scripts.ws_tick_collector --config config/currencies.yaml
+
+currencies:
+  # Ethereum Options (Production)
+  - symbol: ETH
+    enabled: true
+    instrument_types:
+      - option
+      - future
+      - perpetual
+    options:
+      top_n: 50  # Number of top options by open interest (set to 0 for all)
+      min_open_interest: 0  # Minimum open interest threshold (ETH)
+      min_volume_24h: 0  # Minimum 24h volume threshold (USD)
+    futures:
+      include_all: true  # Collect all ETH futures (usually ~7 contracts)
+    perpetual:
+      enabled: true  # ETH-PERPETUAL
+    priority: 1  # Lower number = higher priority
+
+  # Bitcoin Options (Coming Soon)
+  - symbol: BTC
+    enabled: false  # Set to true to enable BTC collection
+    instrument_types:
+      - option
+      - future
+      - perpetual
+    options:
+      top_n: 100  # BTC has ~2,500 options, collect top 100
+      min_open_interest: 10  # Filter low-liquidity options (BTC)
+      min_volume_24h: 10000  # Filter low-volume options (USD)
+    futures:
+      include_all: true  # Collect all BTC futures (usually ~7 contracts)
+    perpetual:
+      enabled: true  # BTC-PERPETUAL
+    priority: 2
+
+  # Solana Options (Coming Soon - when Deribit adds support)
+  - symbol: SOL
+    enabled: false  # Deribit doesn't support SOL options yet (as of Nov 2024)
+    instrument_types:
+      - option
+      - future
+      - perpetual
+    options:
+      top_n: 30  # SOL will have fewer options than BTC/ETH
+      min_open_interest: 1
+      min_volume_24h: 1000
+    futures:
+      include_all: true
+    perpetual:
+      enabled: true  # SOL-PERPETUAL
+    priority: 3
+    notes: "Waiting for Deribit to add SOL options support"
+
+# Global Settings
+global:
+  # WebSocket Settings
+  max_connections: 3  # Maximum WebSocket connections (Deribit limit)
+  max_subscriptions_per_connection: 500  # Deribit limit
+
+  # Buffer Settings
+  buffer_size_quotes: 200000  # Per-currency quote buffer
+  buffer_size_trades: 100000  # Per-currency trade buffer
+  flush_interval_sec: 3  # Database write frequency
+
+  # Database Settings
+  batch_size: 10000  # Max rows per INSERT transaction
+  connection_pool_size: 5  # Max database connections
+
+  # Monitoring
+  stats_interval_sec: 60  # How often to log statistics
+  heartbeat_timeout_sec: 10  # Warn if no ticks for N seconds
+
+  # Auto-Reconnect
+  reconnect_delay_initial: 1  # Initial reconnect delay (seconds)
+  reconnect_delay_max: 60  # Max reconnect delay (seconds)
+
+  # Data Quality
+  log_gaps: true  # Log data gaps to data_gaps table
+  gap_threshold_sec: 5  # Gap detection threshold
+
+# NAS Deployment Settings
+nas:
+  deployment_env: "nas"  # Options: local, nas, cloud
+  collector_id: "collector-1"  # Unique ID for this collector instance
+
+  # Resource Limits (for Docker)
+  memory_limit: "2GB"  # Collector container memory limit
+  cpu_limit: 1.0  # CPU cores (1.0 = 1 core)
+
+  # Data Retention
+  retention_days_hot: 30  # Keep uncompressed data for 30 days
+  retention_days_warm: 365  # Keep compressed data for 1 year
+  retention_days_cold: 1825  # Archive to Backblaze B2 after 5 years
+
+  # Alerting (optional)
+  email_alerts: false  # Enable email alerts for critical errors
+  alert_email: "your-email@example.com"
+
+  # Backup (optional)
+  auto_backup: true  # Enable automatic daily backups
+  backup_time: "03:00"  # Daily backup time (UTC)
+  backup_retention_days: 7  # Keep last 7 days of backups
+
+# Advanced: Multi-Region Redundancy (Future)
+redundancy:
+  enabled: false  # Enable multi-collector redundancy
+  collectors:
+    - id: "collector-1"
+      location: "nas-home"
+      priority: 1  # Primary collector
+    - id: "collector-2"
+      location: "cloud-hetzner"
+      priority: 2  # Failover collector
+  dedup_strategy: "primary_wins"  # How to handle duplicate ticks
+
+# Notes:
+# 1. To add a new currency: Copy an existing entry and modify symbol/settings
+# 2. To enable a currency: Set enabled: true
+# 3. To collect ALL options (not just top N): Set top_n: 0
+# 4. Total subscriptions = sum of (options + futures + perpetuals) across all enabled currencies
+# 5. Must stay under: max_connections × max_subscriptions_per_connection = 3 × 500 = 1,500
+#
+# Example calculation for enabled currencies:
+#   ETH: 50 options × 2 channels + 7 futures × 2 + 1 perp × 2 = 116 subscriptions
+#   BTC: 100 options × 2 channels + 7 futures × 2 + 1 perp × 2 = 216 subscriptions
+#   Total: 332 subscriptions (well under 1,500 limit)

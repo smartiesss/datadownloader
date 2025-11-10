@@ -1,0 +1,217 @@
+# Docker Compose for Comprehensive Crypto Data Collection (ETH + BTC)
+# Deploy to NAS (Synology/QNAP/TerraMaster) with Docker support
+#
+# This configuration collects:
+# - ETH options tick data (WebSocket real-time)
+# - BTC options tick data (WebSocket real-time)
+# - ETH + BTC perpetuals OHLCV (REST API 1-minute)
+# - ETH + BTC futures OHLCV (REST API 1-minute)
+# - ETH + BTC options OHLCV + Greeks (REST API 1-minute/1-hour)
+# - ETH + BTC funding rates (REST API every 8 hours)
+#
+# Quick Start:
+#   1. Copy .env.example to .env and edit passwords
+#   2. Apply all database schemas: schema/001*.sql, schema/002*.sql, schema/003*.sql, schema.sql
+#   3. Run: docker-compose -f docker-compose-comprehensive.yml up -d
+#   4. Check: docker-compose -f docker-compose-comprehensive.yml logs -f
+#   5. Access Grafana: http://nas-ip:3000 (admin/[your password])
+
+version: '3.8'
+
+services:
+  # ============================================================================
+  # DATABASE
+  # ============================================================================
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: crypto-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_data}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "work_mem=50MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "max_connections=100"  # Increased for multiple collectors
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups
+    ports:
+      - "5432:5432"
+    networks:
+      - crypto_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================================================
+  # WEBSOCKET COLLECTORS (Real-time Tick Data)
+  # ============================================================================
+
+  ws-collector-eth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ws-collector-eth
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_tick_collector_multi
+    environment:
+      # Currency configuration
+      CURRENCY: ETH
+      TOP_N_INSTRUMENTS: ${WS_ETH_TOP_N:-50}
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      BUFFER_SIZE_QUOTES: ${BUFFER_SIZE_QUOTES:-200000}
+      BUFFER_SIZE_TRADES: ${BUFFER_SIZE_TRADES:-100000}
+      FLUSH_INTERVAL_SEC: ${FLUSH_INTERVAL_SEC:-3}
+      SNAPSHOT_INTERVAL_SEC: ${SNAPSHOT_INTERVAL_SEC:-300}  # 5 minutes
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+
+  ws-collector-btc:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ws-collector-btc
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_tick_collector_multi
+    environment:
+      # Currency configuration
+      CURRENCY: BTC
+      TOP_N_INSTRUMENTS: ${WS_BTC_TOP_N:-50}
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      BUFFER_SIZE_QUOTES: ${BUFFER_SIZE_QUOTES:-200000}
+      BUFFER_SIZE_TRADES: ${BUFFER_SIZE_TRADES:-100000}
+      FLUSH_INTERVAL_SEC: ${FLUSH_INTERVAL_SEC:-3}
+      SNAPSHOT_INTERVAL_SEC: ${SNAPSHOT_INTERVAL_SEC:-300}  # 5 minutes
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+
+  # ============================================================================
+  # REST API COLLECTOR (OHLCV + Greeks)
+  # ============================================================================
+
+  rest-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rest-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.collect_realtime
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection intervals (seconds)
+      PERPETUAL_INTERVAL: ${REST_PERPETUAL_INTERVAL:-60}      # 1 minute
+      FUTURES_INTERVAL: ${REST_FUTURES_INTERVAL:-60}          # 1 minute
+      OPTIONS_OHLCV_INTERVAL: ${REST_OPTIONS_OHLCV_INTERVAL:-60}  # 1 minute
+      OPTIONS_GREEKS_INTERVAL: ${REST_GREEKS_INTERVAL:-3600}  # 1 hour
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+
+  # ============================================================================
+  # FUNDING RATES COLLECTOR
+  # ============================================================================
+
+  funding-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: funding-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.funding_rates_collector
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      FUNDING_CHECK_INTERVAL_SEC: ${FUNDING_CHECK_INTERVAL_SEC:-600}  # 10 minutes
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+
+  # ============================================================================
+  # GRAFANA (Data Visualization)
+  # ============================================================================
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: crypto-grafana
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - crypto_net
+
+volumes:
+  timescaledb_data:
+  grafana_data:
+
+networks:
+  crypto_net:
+    driver: bridge

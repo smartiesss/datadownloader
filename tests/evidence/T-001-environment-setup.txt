@@ -1,0 +1,103 @@
+================================================================================
+T-001: Environment Setup Evidence
+Task: Prerequisites (Phase 0)
+Acceptance Criteria: AC-001
+Date: 2025-10-21
+================================================================================
+
+ENVIRONMENT VERIFICATION
+================================================================================
+
+1. Python Version
+   ✓ Python 3.12.6
+   Command: python3 --version
+   Status: PASS (>= 3.10 required)
+
+2. PostgreSQL Version
+   ✓ PostgreSQL 14.15 (Homebrew)
+   Command: psql --version
+   Status: PASS (>= 14.0 required)
+   Server Status: Running and accepting connections
+
+3. Database Setup
+   ✓ Database: crypto_data
+   Command: createdb -U postgres crypto_data
+   Status: PASS
+
+   Tables Created:
+   - funding_rates
+   - futures_ohlcv
+   - index_prices
+   - options_greeks
+   - options_ohlcv
+   - perpetuals_ohlcv
+
+4. TimescaleDB Status
+   ⚠ TimescaleDB 2.22.1 installed but NOT enabled for Phase 0
+   Reason: Version mismatch (installed for PostgreSQL 17, running PostgreSQL 14)
+   Plan: Will be properly configured in Phase 1
+   Impact: Using regular PostgreSQL tables instead of hypertables for Phase 0
+
+   Note: schema_simple.sql created with regular tables for Phase 0
+         schema.sql (with hypertables) reserved for Phase 1
+
+5. Python Dependencies
+   ✓ aiohttp (>= 3.9.0) - async HTTP client
+   ✓ psycopg2-binary (>= 2.9.0) - PostgreSQL driver
+   ✓ pandas (>= 2.0.0) - data analysis
+   ✓ numpy (>= 1.24.0) - numerical computing
+   ✓ python-dotenv (>= 1.0.0) - environment variables
+   ✓ pytest (>= 7.4.0) - testing framework
+   ✓ pytest-asyncio (>= 0.21.0) - async testing
+
+   Command: pip list | grep -E 'aiohttp|psycopg2|pandas|numpy|dotenv|pytest'
+   Status: PASS
+
+6. Logging Configuration
+   ✓ RotatingFileHandler configured
+   Max file size: 10 MB
+   Backup count: 5
+   Log directory: /Users/doghead/PycharmProjects/datadownloader/logs/
+   Status: PASS (verified by SMK-003)
+
+================================================================================
+PHASE 0 DELIVERABLES
+================================================================================
+
+Files Created:
+✓ requirements.txt - Python dependencies manifest
+✓ logging_config.py - Logging configuration with rotation
+✓ schema_simple.sql - Database schema (regular tables for Phase 0)
+✓ scripts/test_connectivity.py - API connectivity test
+✓ scripts/generate_test_logs.py - Log rotation test harness
+✓ scripts/__init__.py - Package marker
+
+Evidence Files:
+✓ tests/evidence/T-003-connectivity.json - API test results
+✓ tests/evidence/T-002-schema-validation.txt - Schema validation
+✓ tests/evidence/T-004-log-rotation.txt - Log rotation verification
+
+================================================================================
+ACCEPTANCE CRITERIA STATUS
+================================================================================
+
+AC-001: Prerequisites (Python 3.12, PostgreSQL 14) ✓ PASS
+AC-002: Database schema created with indexes ✓ PASS
+AC-003: Log file rotation configured ✓ PASS
+
+================================================================================
+PHASE 0 COMPLETION STATUS
+================================================================================
+
+All Phase 0 smoke tests passed:
+✓ SMK-001: API Connectivity Check (HTTP 200, API v1.2.26)
+✓ SMK-002: Database Schema Validation (6 tables created)
+✓ SMK-003: Log File Rotation Check (5 backup files @ 10 MB each)
+
+Phase 0 Status: ✓ COMPLETE
+Ready for Phase 1: YES
+
+Note: TimescaleDB hypertables deferred to Phase 1 due to PostgreSQL version
+      compatibility. All other Phase 0 requirements met.
+
+================================================================================

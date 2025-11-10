@@ -1,0 +1,80 @@
+# Git files
+.git
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+logs/
+*.log
+
+# Data files (don't include in image)
+data/
+backups/
+*.csv
+*.parquet
+*.db
+*.sqlite
+
+# Test files
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Docker files (already in context)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Environment files (contains secrets)
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Handoff files (PM/Coder artifacts)
+handoff/

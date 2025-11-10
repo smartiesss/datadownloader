@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cat:*)",
+      "Read(//Users/doghead/.claude/**)",
+      "Bash(mkdir:*)",
+      "SlashCommand(/coder)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m pytest --version)",
+      "Bash(python -m pytest tests/test_market_data.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_market_data.py -v --tb=line)",
+      "Bash(python -m pytest tests/test_indicators.py -v --tb=line)",
+      "Bash(python -m pytest tests/test_indicators.py::TestIndicatorsIntegration::test_all_indicators_on_real_data -v)",
+      "Bash(python -m pytest tests/test_indicators.py -v --tb=short)",
+      "Bash(python -m pytest:*)",
+      "Bash(PYTHONPATH=/Users/doghead/PycharmProjects/claude-agent python3:*)",
+      "Bash(/usr/local/bin/python3 -m pytest:*)",
+      "Bash(tee:*)",
+      "Bash(chmod:*)",
+      "SlashCommand(/qa)",
+      "SlashCommand(/pm)",
+      "Read(//private/tmp/**)",
+      "SlashCommand(/finance)",
+      "SlashCommand(/finance:*)",
+      "Bash(if [ -f requirements.txt ])",
+      "Bash(then pip install -r requirements.txt)",
+      "Bash(else pip install python-dotenv pytest-asyncio)",
+      "Bash(fi)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -1,0 +1,10 @@
+    table_name    
+------------------
+ funding_rates
+ futures_ohlcv
+ index_prices
+ options_greeks
+ options_ohlcv
+ perpetuals_ohlcv
+(6 rows)
+
