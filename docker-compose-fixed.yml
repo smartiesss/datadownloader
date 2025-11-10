@@ -64,7 +64,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       PYTHONUNBUFFERED: 1
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
     volumes:
       - ./logs:/app/logs
       - ./config:/app/config:ro
