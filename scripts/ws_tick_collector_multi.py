@@ -34,6 +34,7 @@ from dotenv import load_dotenv
 from scripts.instrument_fetcher_multi import MultiCurrencyInstrumentFetcher
 from scripts.tick_buffer import TickBuffer
 from scripts.tick_writer_multi import MultiCurrencyTickWriter
+from scripts.instrument_expiry_checker import filter_expired_instruments, get_next_expiry_time
 
 # Load environment variables
 load_dotenv()
@@ -240,6 +241,7 @@ class WebSocketTickCollector:
         # Heartbeat monitoring
         self.last_tick_time: Optional[datetime] = None
         self.heartbeat_timeout_sec = 10
+        self.no_ticks_refresh_threshold_sec = 300  # Refresh instruments if no ticks for 5 minutes
 
         # Statistics
         self.stats = {
@@ -298,7 +300,8 @@ class WebSocketTickCollector:
                 asyncio.create_task(self._flush_loop()),
                 asyncio.create_task(self._heartbeat_monitor()),
                 asyncio.create_task(self._stats_logger()),
-                asyncio.create_task(self._periodic_snapshot_loop())
+                asyncio.create_task(self._periodic_snapshot_loop()),
+                asyncio.create_task(self._instrument_refresh_loop())
             ]
 
             # Wait for all tasks
@@ -518,6 +521,14 @@ class WebSocketTickCollector:
                             f"No {self.currency} ticks received for {time_since_last_tick:.0f}s"
                         )
 
+                    # Trigger instrument refresh if no ticks for too long (likely expired)
+                    if time_since_last_tick > self.no_ticks_refresh_threshold_sec:
+                        logger.error(
+                            f"No ticks for {time_since_last_tick:.0f}s - instruments may have expired! "
+                            f"Triggering instrument refresh..."
+                        )
+                        await self._refresh_instruments()
+
             except Exception as e:
                 logger.error(f"Error in heartbeat monitor: {e}", exc_info=True)
 
@@ -588,6 +599,110 @@ class WebSocketTickCollector:
 
             except Exception as e:
                 logger.error(f"Error in periodic snapshot loop: {e}", exc_info=True)
+
+    async def _instrument_refresh_loop(self):
+        """
+        Periodic instrument refresh loop.
+        Checks for expired instruments and refreshes the subscription list.
+        Runs every hour or at next expiry time (whichever is sooner).
+        """
+        refresh_interval_sec = int(os.getenv('INSTRUMENT_REFRESH_INTERVAL_SEC', 3600))  # Default 1 hour
+
+        logger.info(f"Instrument refresh loop started for {self.currency} (interval: {refresh_interval_sec}s)")
+
+        while self.running:
+            try:
+                # Calculate sleep time until next check
+                # Check sooner if we know instruments are expiring soon
+                next_expiry = get_next_expiry_time(self.instruments)
+                if next_expiry:
+                    from datetime import timezone
+                    now = datetime.now(timezone.utc)
+                    seconds_until_expiry = (next_expiry - now).total_seconds()
+
+                    # Check 1 minute after expiry to give exchange time to update
+                    sleep_time = min(refresh_interval_sec, max(60, seconds_until_expiry + 60))
+                else:
+                    sleep_time = refresh_interval_sec
+
+                logger.info(f"Next instrument refresh in {sleep_time/60:.1f} minutes")
+
+                await asyncio.sleep(sleep_time)
+
+                if not self.running:
+                    break
+
+                # Check if current instruments have expired
+                active_instruments = filter_expired_instruments(self.instruments, buffer_minutes=5)
+
+                if len(active_instruments) < len(self.instruments):
+                    expired_count = len(self.instruments) - len(active_instruments)
+                    logger.warning(
+                        f"{expired_count} instruments expired! "
+                        f"Active: {len(active_instruments)}, Expired: {expired_count}"
+                    )
+                    logger.info("Triggering instrument refresh due to expiry...")
+                    await self._refresh_instruments()
+                else:
+                    logger.info(f"All {len(self.instruments)} instruments still active")
+
+            except Exception as e:
+                logger.error(f"Error in instrument refresh loop: {e}", exc_info=True)
+
+    async def _refresh_instruments(self):
+        """
+        Refresh instrument list and resubscribe to WebSocket.
+        Called when instruments expire or no ticks are received for long time.
+        """
+        try:
+            logger.info(f"🔄 Refreshing {self.currency} instruments...")
+
+            # Fetch new top instruments
+            new_instruments = await self.instrument_fetcher.get_top_n_options(
+                n=self.top_n_instruments
+            )
+
+            # Filter out expired ones
+            new_instruments = filter_expired_instruments(new_instruments, buffer_minutes=5)
+
+            if not new_instruments:
+                logger.error("No active instruments found! Will retry in next refresh cycle.")
+                return
+
+            # Check if instruments changed
+            old_set = set(self.instruments)
+            new_set = set(new_instruments)
+
+            added = new_set - old_set
+            removed = old_set - new_set
+            unchanged = old_set & new_set
+
+            logger.info(
+                f"Instrument changes: {len(added)} added, {len(removed)} removed, {len(unchanged)} unchanged"
+            )
+
+            if added:
+                logger.info(f"New instruments: {list(added)[:5]}...")
+            if removed:
+                logger.info(f"Removed instruments: {list(removed)[:5]}...")
+
+            # Update instrument list
+            self.instruments = new_instruments
+
+            # Close existing WebSocket connection to trigger reconnect with new subscriptions
+            if self.ws:
+                logger.info("Closing WebSocket to refresh subscriptions...")
+                await self.ws.close()
+                # The websocket_loop will automatically reconnect and resubscribe
+
+            # Reset last tick time so heartbeat doesn't trigger another refresh immediately
+            self.last_tick_time = datetime.now()
+
+            logger.info(f"✅ Instrument refresh complete: {len(self.instruments)} active instruments")
+
+        except Exception as e:
+            logger.error(f"Failed to refresh instruments: {e}", exc_info=True)
+            self.stats['errors'] += 1
 
 
 async def main():
