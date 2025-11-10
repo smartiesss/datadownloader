@@ -1,0 +1,228 @@
+# Production Docker Compose - Complete Data Collection System
+# Optimized for LOCAL TESTING first, then NAS deployment
+#
+# This collects:
+# - BTC + ETH perpetuals (orderbook depth + trades)
+# - BTC + ETH options (orderbook depth + trades + Greeks)
+# - Automatic expiry detection
+# - Automatic new instrument detection (on restart)
+#
+# Quick Start (LOCAL):
+#   1. cp .env.example .env
+#   2. Edit .env - set POSTGRES_PASSWORD
+#   3. docker-compose -f docker-compose-production.yml up -d
+#   4. Check logs: docker-compose -f docker-compose-production.yml logs -f
+#   5. Grafana: http://localhost:3000 (admin/admin)
+#
+# For NAS Deployment: See NAS_DEPLOYMENT_GUIDE.md
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # TIMESCALEDB - Time-series database
+  # ==========================================================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: crypto-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_data}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env file}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "work_mem=50MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_statement=none"  # Reduce log noise
+      - "-c"
+      - "log_min_duration_statement=1000"  # Only log slow queries (>1s)
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro  # Auto-init schema
+      - ./backups:/backups
+    ports:
+      - "5432:5432"  # Exposed for local testing (remove for NAS to avoid conflicts)
+    networks:
+      - crypto_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ==========================================================================
+  # ETH OPTIONS COLLECTOR - WebSocket real-time collector
+  # ==========================================================================
+  eth-options-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-options-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_tick_collector_multi
+    environment:
+      # Currency
+      CURRENCY: ETH
+      TOP_N_INSTRUMENTS: 50
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300  # 5 minutes - full orderbook snapshots
+
+      # WebSocket
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # BTC OPTIONS COLLECTOR - WebSocket real-time collector
+  # ==========================================================================
+  btc-options-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-btc-options-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_tick_collector_multi
+    environment:
+      # Currency
+      CURRENCY: BTC
+      TOP_N_INSTRUMENTS: 50
+
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300  # 5 minutes - full orderbook snapshots
+
+      # WebSocket
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # PERPETUALS COLLECTOR - BTC-PERPETUAL + ETH-PERPETUAL
+  # ==========================================================================
+  perpetuals-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-perpetuals-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_perp_collector
+    environment:
+      # Database
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+
+      # Collection settings
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300  # 5 minutes - full orderbook snapshots
+
+      # WebSocket
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # GRAFANA - Data visualization
+  # ==========================================================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: crypto-grafana
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - crypto_net
+
+volumes:
+  timescaledb_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  crypto_net:
+    driver: bridge
