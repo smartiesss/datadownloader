@@ -70,13 +70,13 @@ services:
       - ./config:/app/config:ro
     networks:
       - crypto_net
+    # Note: CPU limits removed for NAS compatibility
+    # Some NAS kernels don't support CPU CFS scheduler
     deploy:
       resources:
         limits:
-          cpus: '1.0'
           memory: 2G
         reservations:
-          cpus: '0.5'
           memory: 1G
 
   # Grafana - Data visualization dashboard
