@@ -36,8 +36,9 @@ services:
       - timescaledb_data:/var/lib/postgresql/data
       - ./schema:/docker-entrypoint-initdb.d:ro
       - ./backups:/backups
-    ports:
-      - "5432:5432"
+    # Port 5432 not exposed to avoid conflicts with NAS PostgreSQL
+    # Containers communicate over crypto_net network
+    # To access: docker exec -it eth-timescaledb psql -U postgres -d crypto_data
     networks:
       - crypto_net
     healthcheck:
