@@ -45,7 +45,7 @@ services:
       - "log_min_duration_statement=1000"
     volumes:
       - timescaledb_data:/var/lib/postgresql/data
-      - ./schema:/docker-entrypoint-initdb.d:ro
+      # - ./schema:/docker-entrypoint-initdb.d:ro  # Commented out - apply migrations manually
       - ./backups:/backups
     ports:
       - "5439:5432"
