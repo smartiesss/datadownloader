@@ -267,13 +267,17 @@ class WebSocketTickCollector:
             # Connect to database
             await self.writer.connect()
 
-            # Fetch top instruments
-            logger.info(f"Fetching top {self.top_n_instruments} {self.currency} options...")
-            self.instruments = await self.instrument_fetcher.get_top_n_options(
-                n=self.top_n_instruments
-            )
+            # Fetch instruments (only if not already set by orchestrator)
+            if not self.instruments:
+                logger.info(f"Fetching top {self.top_n_instruments} {self.currency} options...")
+                self.instruments = await self.instrument_fetcher.get_top_n_options(
+                    n=self.top_n_instruments
+                )
+            else:
+                logger.info(f"Using pre-assigned instruments: {len(self.instruments)} instruments")
+
             logger.info(f"Subscribed instruments: {len(self.instruments)}")
-            logger.debug(f"Top 5: {self.instruments[:5]}")
+            logger.debug(f"First 5: {self.instruments[:5]}")
 
             # Fetch initial orderbook snapshot via REST API
             logger.info(f"Fetching initial {self.currency} orderbook snapshot via REST API...")

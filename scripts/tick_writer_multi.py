@@ -346,9 +346,9 @@ class MultiCurrencyTickWriter:
                     # Schema: timestamp, instrument, trade_id, price, amount, direction, iv, index_price
                     query = f"""
                         INSERT INTO {self.trades_table}
-                        (timestamp, instrument, trade_id, price, amount, direction, iv, index_price)
+                        (timestamp, trade_id, instrument, price, amount, direction, iv, index_price)
                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                        ON CONFLICT (trade_id, instrument) DO NOTHING
+                        ON CONFLICT (timestamp, trade_id, instrument) DO NOTHING
                     """
 
                     await conn.executemany(
@@ -356,8 +356,8 @@ class MultiCurrencyTickWriter:
                         [
                             (
                                 trade['timestamp'],
-                                trade['instrument_name'],
                                 trade['trade_id'],
+                                trade['instrument_name'],
                                 trade['price'],
                                 trade['amount'],
                                 trade['direction'],

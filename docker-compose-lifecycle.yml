@@ -1,0 +1,462 @@
+# Multi-Connection Docker Compose with Lifecycle Management
+# Collects ALL BTC + ETH options with automatic lifecycle management
+#
+# NEW: Lifecycle managers automatically handle expired/new options
+# - BTC lifecycle manager: Manages 3 BTC collectors
+# - ETH lifecycle manager: Manages 4 ETH collectors
+#
+# Architecture:
+# - BTC: ~728 options → 3 connections + 1 lifecycle manager
+# - ETH: ~820 options → 4 connections + 1 lifecycle manager
+# - Perpetuals: 2 instruments → 1 connection
+#
+# Total: 10 containers (8 collectors + 2 lifecycle managers)
+
+version: '3.8'
+
+services:
+  # ==========================================================================
+  # TIMESCALEDB - Time-series database (shared by all collectors)
+  # ==========================================================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: crypto-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-crypto_data}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env file}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "work_mem=50MB"
+      - "-c"
+      - "maintenance_work_mem=512MB"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "log_statement=none"
+      - "-c"
+      - "log_min_duration_statement=1000"
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./schema:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups
+    ports:
+      - "5439:5432"
+    networks:
+      - crypto_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ==========================================================================
+  # BTC OPTIONS COLLECTORS (3 connections for ~728 options)
+  # Each exposes HTTP control API on ports 8000, 8001, 8002
+  # ==========================================================================
+
+  btc-options-0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-btc-options-0
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: BTC
+      CONNECTION_ID: 0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  btc-options-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-btc-options-1
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: BTC
+      CONNECTION_ID: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8001
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8001:8001"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  btc-options-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-btc-options-2
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: BTC
+      CONNECTION_ID: 2
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8002
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8002:8002"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # ETH OPTIONS COLLECTORS (4 connections for ~820 options)
+  # Each exposes HTTP control API on ports 8003, 8004, 8005, 8006
+  # ==========================================================================
+
+  eth-options-0:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-options-0
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: ETH
+      CONNECTION_ID: 0
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8003
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8003:8003"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  eth-options-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-options-1
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: ETH
+      CONNECTION_ID: 1
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8004
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8004:8004"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  eth-options-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-options-2
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: ETH
+      CONNECTION_ID: 2
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8005
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8005:8005"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  eth-options-3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-options-3
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_multi_conn_orchestrator
+    environment:
+      CURRENCY: ETH
+      CONNECTION_ID: 3
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      CONTROL_API_PORT: 8006
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    ports:
+      - "8006:8006"  # HTTP control API
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # LIFECYCLE MANAGERS - Automatic expired/new option management
+  # ==========================================================================
+
+  btc-lifecycle-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-btc-lifecycle-manager
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      btc-options-0:
+        condition: service_started
+      btc-options-1:
+        condition: service_started
+      btc-options-2:
+        condition: service_started
+    command: python -m scripts.lifecycle_manager
+    environment:
+      CURRENCY: BTC
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      COLLECTOR_ENDPOINTS: http://btc-options-0:8000,http://btc-options-1:8001,http://btc-options-2:8002
+      LIFECYCLE_REFRESH_INTERVAL_SEC: 300  # Check every 5 minutes
+      LIFECYCLE_EXPIRY_BUFFER_MINUTES: 5    # Unsubscribe 5 min before expiry
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  eth-lifecycle-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-eth-lifecycle-manager
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      eth-options-0:
+        condition: service_started
+      eth-options-1:
+        condition: service_started
+      eth-options-2:
+        condition: service_started
+      eth-options-3:
+        condition: service_started
+    command: python -m scripts.lifecycle_manager
+    environment:
+      CURRENCY: ETH
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      COLLECTOR_ENDPOINTS: http://eth-options-0:8003,http://eth-options-1:8004,http://eth-options-2:8005,http://eth-options-3:8006
+      LIFECYCLE_REFRESH_INTERVAL_SEC: 300  # Check every 5 minutes
+      LIFECYCLE_EXPIRY_BUFFER_MINUTES: 5    # Unsubscribe 5 min before expiry
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # ==========================================================================
+  # PERPETUALS COLLECTOR - BTC-PERPETUAL + ETH-PERPETUAL
+  # ==========================================================================
+
+  perpetuals-collector:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-perpetuals-collector
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    command: python -m scripts.ws_perp_collector
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@timescaledb:5432/${POSTGRES_DB:-crypto_data}
+      BUFFER_SIZE_QUOTES: 200000
+      BUFFER_SIZE_TRADES: 100000
+      FLUSH_INTERVAL_SEC: 3
+      SNAPSHOT_INTERVAL_SEC: 300
+      DERIBIT_WS_URL: wss://www.deribit.com/ws/api/v2
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      PYTHONUNBUFFERED: 1
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - crypto_net
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+  # ==========================================================================
+  # GRAFANA - Data visualization
+  # ==========================================================================
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: crypto-grafana
+    restart: unless-stopped
+    depends_on:
+      - timescaledb
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: grafana-clock-panel
+      GF_SERVER_ROOT_URL: http://localhost:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - crypto_net
+
+volumes:
+  timescaledb_data:
+    driver: local
+  grafana_data:
+    driver: local
+
+networks:
+  crypto_net:
+    driver: bridge
