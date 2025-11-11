@@ -569,7 +569,7 @@ class LifecycleManager:
                     instrument_name,
                     self.currency,
                     collector_id,
-                    json.dumps(details) if details else None,
+                    json.dumps(details, default=str) if details else None,
                     success,
                     error_message
                 )
